@@ -73,7 +73,54 @@ function showTyping(){const box=$('aiMessages'),el=document.createElement('div')
 function hideTyping(){const t=$('typing');if(t)t.remove()}
 function openChat(){if(!state.open){state.open=true;$('aiChat').classList.add('open');if(chatHelpLabel)chatHelpLabel.classList.add('hide');if(!$('aiMessages').children.length)addMessage('Hi! 👋 Welcome to AVP Holidays. I’m your travel assistant. How can I help you today?','bot');$('aiInput').focus()}}
 function closeChat(){state.open=false;$('aiChat').classList.remove('open');if(chatHelpLabel)chatHelpLabel.classList.remove('hide')}
-function sendChat(text){text=(text||$('aiInput').value).trim();if(!text)return;openChat();$('aiInput').value='';addMessage(text,'user');state.history.push({role:'user',text:text});showTyping();const history=state.history.slice(-8);google.script.run.withSuccessHandler(reply=>{hideTyping();const clean=String(reply||'Sorry, I could not respond right now.');addMessage(clean,'bot');state.history.push({role:'assistant',text:clean})}).withFailureHandler(()=>{hideTyping();const msg='I’m having trouble connecting right now. Please call AVP Holidays at +1-888-393-2619 for assistance.';addMessage(msg,'bot');state.history.push({role:'assistant',text:msg})}).getAiReply(text,history)}
+function sendChat(text){
+  text=(text||$('aiInput').value).trim();
+  if(!text)return;
+  openChat();
+  $('aiInput').value='';
+  addMessage(text,'user');
+  state.history.push({role:'user',text:text});
+  showTyping();
+
+  // GitHub Pages cannot use google.script.run because that API only exists
+  // inside Google Apps Script HTML-service pages. Use the public Apps Script
+  // web-app endpoint through JSONP instead.
+  const history=state.history.slice(-8);
+  const endpoint='https://script.google.com/macros/s/AKfycbwvnWD8RmTrENRm9SEIBkO0pfBUY3PzE_9I93p3c43_f28msfdrpYyM_VH0QtSRe-pc/exec';
+  const callbackName='avpChatCallback_'+Date.now()+'_'+Math.floor(Math.random()*100000);
+  const script=document.createElement('script');
+  let finished=false;
+  const cleanup=()=>{
+    if(finished)return;
+    finished=true;
+    try{script.remove();}catch(e){}
+    try{delete window[callbackName];}catch(e){window[callbackName]=undefined;}
+  };
+  const fail=()=>{
+    cleanup();
+    hideTyping();
+    const msg='I’m having trouble connecting right now. Please call AVP Holidays at +1-888-393-2619 for assistance.';
+    addMessage(msg,'bot');
+    state.history.push({role:'assistant',text:msg});
+  };
+  window[callbackName]=(payload)=>{
+    if(finished)return;
+    cleanup();
+    hideTyping();
+    const clean=String((payload&&payload.reply)||'Sorry, I could not respond right now.');
+    addMessage(clean,'bot');
+    state.history.push({role:'assistant',text:clean});
+  };
+  script.onerror=fail;
+  document.body.appendChild(script);
+  const params=new URLSearchParams();
+  params.set('action','chat');
+  params.set('message',text);
+  params.set('history',JSON.stringify(history));
+  params.set('callback',callbackName);
+  script.src=endpoint+'?'+params.toString();
+  setTimeout(()=>{if(!finished)fail();},30000);
+}
 
 const callPopup=$('callPopup'),callPopupClose=$('callPopupClose'),chatHelpLabel=$('chatHelpLabel');
 function closeCallPopup(){if(!callPopup)return;callPopup.classList.remove('show');callPopup.setAttribute('aria-hidden','true')}
